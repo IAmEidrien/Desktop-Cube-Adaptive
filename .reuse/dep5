@@ -27,3 +27,11 @@ License: GPL-3.0-or-later
 Files: metadata.json
 Copyright: Simon Schneegans <code@simonschneegans.de>
 License: GPL-3.0-or-later
+
+Files: .github/testing-validation.json resources/desktop-cube.gresource
+Copyright: Eidrien
+License: GPL-3.0-or-later
+
+Files: locale/*/LC_MESSAGES/desktop-cube.mo
+Copyright: Simon Schneegans <code@simonschneegans.de>
+License: GPL-3.0-or-later

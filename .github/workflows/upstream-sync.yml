@@ -1,0 +1,57 @@
+# SPDX-FileCopyrightText: Eidrien
+# SPDX-License-Identifier: CC0-1.0
+name: Propose upstream updates
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '31 9 * * 1'
+permissions:
+  contents: write
+  pull-requests: write
+concurrency: upstream-sync
+jobs:
+  propose:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: testing
+      - name: Fetch and merge upstream without replacing fork identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git remote add upstream https://github.com/Schneegans/Desktop-Cube.git
+          tag=$(gh api repos/Schneegans/Desktop-Cube/releases/latest --jq .tag_name)
+          [[ "$tag" =~ ^v[0-9]+$ ]] || exit 1
+          git fetch upstream tag "$tag"
+          if git merge-base --is-ancestor "$tag" HEAD; then
+            echo 'UPSTREAM_CHANGED=false' >> "$GITHUB_ENV"
+            exit 0
+          fi
+          git merge --no-commit --no-ff "$tag" || {
+            conflicts=$(git diff --name-only --diff-filter=U)
+            if [ "$conflicts" != 'metadata.json' ]; then
+              echo 'Upstream conflicts require manual integration; no changes will be pushed.'
+              exit 1
+            fi
+          }
+          git restore --source=HEAD --staged --worktree metadata.json
+          git commit -m 'Merge upstream Desktop Cube for adaptive testing'
+          echo 'UPSTREAM_CHANGED=true' >> "$GITHUB_ENV"
+      - name: Validate candidate
+        if: env.UPSTREAM_CHANGED == 'true'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y make gettext libglib2.0-dev-bin zip
+          python3 .github/scripts/validate.py
+      - uses: peter-evans/create-pull-request@v7
+        if: env.UPSTREAM_CHANGED == 'true'
+        with:
+          base: testing
+          branch: upstream-candidate
+          title: 'Review upstream Desktop Cube updates'
+          body: 'Upstream merged into the adaptive testing baseline. Fork identity is preserved. Review native Cube/V-Shell/spatial dragging before merging. This workflow does not merge the PR automatically.'
+          delete-branch: false

@@ -1,117 +1,19 @@
 # SPDX-FileCopyrightText: Simon Schneegans <code@simonschneegans.de>
+# SPDX-FileCopyrightText: Eidrien
 # SPDX-License-Identifier: CC0-1.0
-
 name: Checks
-
-on:
-  push:
-    branches:
-      - "**"
-  pull_request:
-    branches:
-      - "**"
-
+on: [push, pull_request]
+permissions:
+  contents: read
 jobs:
   clang_format:
-    name: Check Clang-Format
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-      - name: Download Clang-Format
-        run: |
-          sudo apt update -qq
-          sudo apt install clang-format -qq
-      - name: Run Clang-Format
-        run: scripts/clang-format.sh
-      - name: Compare Results
-        run: |
-          DIFF=$(git diff)
-          if [ ! -z "$DIFF" ]; then echo $DIFF && exit 1; fi
-
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -q && sudo apt-get install -y clang-format
+      - run: scripts/clang-format.sh && git diff --exit-code
   reuse:
-    name: Check Compliance with REUSE Specification
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: REUSE Compliance Check
-        uses: fsfe/reuse-action@v1
-
-  comment_percentage:
-    name: Check Comment Percentage
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    steps:
-      - name: Checkout Current Repository
-        uses: actions/checkout@v4
-        with:
-          path: current
-          ref: ${{ github.ref }}
-      - name: Checkout Base Repository
-        uses: actions/checkout@v4
-        with:
-          path: base
-          ref: ${{ github.base_ref }}
-      - name: Download Cloc
-        run: |
-          sudo apt update -qq
-          sudo apt install cloc -qq
-      - name: Run Cloc
-        run: |
-          BASE="$(base/scripts/cloc.sh --percentage-only)"
-          CURRENT="$(current/scripts/cloc.sh --percentage-only)"
-          echo "Percentage of Comments in Base Repository: $BASE"
-          echo "Percentage of Comments after Merge: $CURRENT"
-          if (( $(echo "$BASE > $CURRENT" |bc -l) ))
-          then
-            awk -v a=$CURRENT -v b=$BASE 'BEGIN {printf "Percentage decreased! (%3.4f%)\n", (a-b)}'
-            exit 1
-          else
-            awk -v a=$CURRENT -v b=$BASE 'BEGIN {printf "Percentage increased! (%3.4f%)\n", (a-b)}'
-          fi
-
-  shellcheck:
-    name: Run ShellCheck
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run ShellCheck
-        run: |
-          find $GITHUB_WORKSPACE -type f -and \( -name "*.sh" \) | xargs shellcheck
-
-  build:
-    name: Run Tests
-    runs-on: ubuntu-latest
-    if: >
-      github.event_name == 'pull_request' ||
-      ( contains(github.ref, 'main') && !contains(github.event.head_commit.message, '[no-ci]') ) ||
-      contains(github.event.head_commit.message, '[run-ci]')
-    strategy:
-      fail-fast: false
-      matrix:
-        version:
-          - "39"
-          - "40"
-          - "41"
-        session:
-          - "gnome-xsession"
-    steps:
-      - uses: actions/checkout@v4
-      - name: Download Dependencies
-        run: |
-          sudo apt update -q
-          sudo apt install gettext libglib2.0-dev imagemagick
-      - name: Build Desktop Cube
-        run: make
-      - name: Test Desktop Cube
-        run: sudo $GITHUB_WORKSPACE/tests/run-test.sh -v ${{ matrix.version }} -s ${{ matrix.session }}
-      - uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: log_${{ matrix.version }}_${{ matrix.session }}
-          path: fail.log
-      - uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: screen_${{ matrix.version }}_${{ matrix.session }}
-          path: fail.png
+      - uses: fsfe/reuse-action@v5

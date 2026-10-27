@@ -1,0 +1,4 @@
+{
+  "commands": [["make", "zip"]],
+  "generic_package": false
+}

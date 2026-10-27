@@ -10,6 +10,7 @@ on:
 
 jobs:
   update-badges:
+    if: github.repository == 'Schneegans/Desktop-Cube'
     name: Update Badges
     runs-on: ubuntu-latest
     steps:
