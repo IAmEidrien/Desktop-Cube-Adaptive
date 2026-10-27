@@ -73,6 +73,11 @@ export default class DesktopCubePreferences extends ExtensionPreferences {
     this._bindAdjustment('edge-switch-pressure');
     this._bindAdjustment('mouse-rotation-speed');
 
+    // Add Adaptive options which are not part of the upstream UI resource.
+    // Keeping these rows programmatic lets this fork remain a drop-in package without
+    // rebuilding Desktop Cube's compiled GResource archive.
+    this._addForkOptions();
+
     // Inject the video link.
     const label    = this._builder.get_object('central-perspective-row');
     label.subtitle = label.subtitle.replace(
@@ -97,10 +102,10 @@ export default class DesktopCubePreferences extends ExtensionPreferences {
       };
 
       // clang-format off
-      addAction('homepage',      'https://github.com/Schneegans/Desktop-Cube');
+      addAction('homepage',      'https://github.com/IAmEidrien/Desktop-Cube-Adaptive');
       addAction('changelog',     'https://github.com/Schneegans/Desktop-Cube/blob/main/docs/changelog.md');
       addAction('translate',     'https://hosted.weblate.org/engage/desktop-cube/');
-      addAction('bugs',          'https://github.com/Schneegans/Desktop-Cube/issues');
+      addAction('bugs',          'https://github.com/IAmEidrien/Desktop-Cube-Adaptive/issues');
       addAction('donate-kofi',   'https://ko-fi.com/schneegans');
       addAction('donate-github', 'https://github.com/sponsors/Schneegans');
       addAction('donate-paypal', 'https://www.paypal.me/simonschneegans');
@@ -121,13 +126,14 @@ export default class DesktopCubePreferences extends ExtensionPreferences {
 
         const dialog = new Adw.AboutWindow({transient_for: window, modal: true});
         dialog.set_application_icon('desktop-cube-symbolic');
-        dialog.set_application_name('Desktop Cube');
+        dialog.set_application_name('Desktop Cube Adaptive');
         dialog.set_version(`${this.metadata.version}`);
-        dialog.set_developer_name('Simon Schneegans');
-        dialog.set_issue_url('https://github.com/Schneegans/Desktop-Cube/issues');
+        dialog.set_developer_name('Eidrien; upstream by Simon Schneegans');
+        dialog.set_issue_url(
+          'https://github.com/IAmEidrien/Desktop-Cube-Adaptive/issues');
         dialog.set_translator_credits([...translators].join('\n'));
         dialog.set_copyright('© 2023 Simon Schneegans');
-        dialog.set_website('https://github.com/Schneegans/Desktop-Cube');
+        dialog.set_website('https://github.com/IAmEidrien/Desktop-Cube-Adaptive');
         dialog.set_license_type(Gtk.License.GPL_3_0);
 
         dialog.show();
@@ -154,6 +160,135 @@ export default class DesktopCubePreferences extends ExtensionPreferences {
 
 
   // ----------------------------------------------------------------------- private stuff
+
+  // Adds settings which exist only in this fork. The upstream preferences UI is
+  // shipped as a compiled GResource, so these rows are inserted at runtime.
+  _addForkOptions() {
+    const createSwitchRow = (settingsKey, title, subtitle) => {
+      const row = new Adw.ActionRow({
+        title: _(title),
+        subtitle: _(subtitle),
+      });
+
+      const toggle           = new Gtk.Switch({valign: Gtk.Align.CENTER});
+      row.activatable_widget = toggle;
+      row.add_suffix(toggle);
+
+      const reset = new Gtk.Button({
+        icon_name: 'edit-clear-symbolic',
+        valign: Gtk.Align.CENTER,
+        tooltip_text: _('Reset to default value'),
+      });
+      reset.add_css_class('flat');
+      row.add_suffix(reset);
+
+      this._settings.bind(settingsKey, toggle, 'active', Gio.SettingsBindFlags.DEFAULT);
+      reset.connect('clicked', () => this._settings.reset(settingsKey));
+
+      return row;
+    };
+
+    // General: workspace looping belongs beside the existing last/first gap concept.
+    // Appending it to the same group keeps the upstream resource untouched. When looping
+    // is active the gap setting has no semantic meaning, so make that row insensitive.
+    const lastFirstRow = this._findAncestorByType(
+      this._builder.get_object('reset-last-first-gap'), Adw.ActionRow);
+    const generalGroup = this._findAncestorByType(lastFirstRow, Adw.PreferencesGroup);
+    const loopRow      = createSwitchRow(
+      'allow-workspace-looping', 'Allow looping workspaces',
+      'Continue from the last visible workspace to the first and vice versa.');
+    generalGroup.add(loopRow);
+
+    const originalGapSubtitle  = lastFirstRow.subtitle;
+    const updateGapSensitivity = () => {
+      const looping          = this._settings.get_boolean('allow-workspace-looping');
+      lastFirstRow.sensitive = !looping;
+      lastFirstRow.subtitle  = looping ?
+         _('The cube is closed into a full loop while workspace looping is enabled.') :
+         originalGapSubtitle;
+    };
+    this._settings.connect('changed::allow-workspace-looping', updateGapSensitivity);
+    updateGapSensitivity();
+
+    const horizontalInputRow = createSwitchRow(
+      'horizontal-workspace-input', 'Use horizontal workspace input',
+      'Use left/right input for Desktop Cube\'s workspace carousel. When the desktop cube animation is disabled, ordinary desktop switching follows GNOME / V-Shell\'s native workspace axis.');
+    generalGroup.add(horizontalInputRow);
+
+    const desktopAnimationRow = createSwitchRow(
+      'enable-desktop-workspace-cube-animation',
+      'Animate desktop workspace switches as a cube',
+      'Apply Desktop Cube\'s 3D transform outside the Overview. Turn off to keep GNOME or V-Shell\'s native workspace transition.');
+    generalGroup.add(desktopAnimationRow);
+
+    const spatial = new Adw.PreferencesGroup({
+      title: _('Spatial window dragging'),
+      description: _(
+        'Drag an Overview window to the selected edge to spread Cube’s existing workspaces into drop targets. Workspace thumbnails remain unchanged.')
+    });
+    this._pages[2].add(spatial);
+    spatial.add(
+      createSwitchRow('spatial-overview', 'Enable spatial window dragging',
+                      'Show all existing workspaces while dragging an Overview window.'));
+    spatial.add(createSwitchRow(
+      'spatial-auto-edge', 'Use the edge opposite the dock',
+      'Follow the dock’s effective side on each monitor; use the fallback edge when no dock is detected.'));
+    const edges = ['top', 'right', 'bottom', 'left'];
+    const edge  = new Adw.ComboRow({
+      title: _('Fallback / manual edge'),
+      model: Gtk.StringList.new([_('Top'), _('Right'), _('Bottom'), _('Left')]),
+      selected: Math.max(0, edges.indexOf(this._settings.get_string('spatial-edge')))
+    });
+    edge.connect('notify::selected',
+                 () => this._settings.set_string('spatial-edge', edges[edge.selected]));
+    spatial.add(edge);
+    const delay = new Adw.SpinRow({
+      title: _('Edge dwell time (milliseconds)'),
+      adjustment: new Gtk.Adjustment({
+        lower: 0,
+        upper: 2000,
+        step_increment: 50,
+        value: this._settings.get_uint('spatial-edge-delay-ms')
+      })
+    });
+    delay.connect(
+      'notify::value',
+      () => this._settings.set_uint('spatial-edge-delay-ms', Math.round(delay.value)));
+    spatial.add(delay);
+
+    // Overview: place the fork options immediately before the two wallpaper-opacity
+    // sliders. The rows are temporarily removed and re-added because AdwPreferencesGroup
+    // exposes append/remove rather than indexed insertion.
+    const activeOpacityRow = this._findAncestorByType(
+      this._builder.get_object('reset-active-workpace-opacity'), Adw.ActionRow);
+    const inactiveOpacityRow = this._findAncestorByType(
+      this._builder.get_object('reset-inactive-workpace-opacity'), Adw.ActionRow);
+    const overviewGroup =
+      this._findAncestorByType(activeOpacityRow, Adw.PreferencesGroup);
+
+    overviewGroup.remove(activeOpacityRow);
+    overviewGroup.remove(inactiveOpacityRow);
+
+    const hideEmptyRow = createSwitchRow(
+      'hide-empty-workspace', 'Hide empty workspace',
+      'Hide the trailing empty workspace when dynamic workspaces are enabled.');
+    const hideWallpaperRow = createSwitchRow(
+      'hide-wallpaper', 'Hide wallpaper',
+      'Let V-Shell, Blur my Shell, or the overview background show through the cube faces.');
+
+    overviewGroup.add(hideEmptyRow);
+    overviewGroup.add(hideWallpaperRow);
+    overviewGroup.add(activeOpacityRow);
+    overviewGroup.add(inactiveOpacityRow);
+
+    const updateOpacitySensitivity = () => {
+      const sensitive              = !this._settings.get_boolean('hide-wallpaper');
+      activeOpacityRow.sensitive   = sensitive;
+      inactiveOpacityRow.sensitive = sensitive;
+    };
+    this._settings.connect('changed::hide-wallpaper', updateOpacitySensitivity);
+    updateOpacitySensitivity();
+  }
 
   // Connects a DesktopCubeImageChooserButton (or anything else which has a 'file'
   // property) to a settings key. It also binds the corresponding reset button.
@@ -191,6 +326,16 @@ export default class DesktopCubePreferences extends ExtensionPreferences {
     const data   = Gio.resources_lookup_data(path, 0);
     const string = new TextDecoder().decode(data.get_data());
     return JSON.parse(string);
+  }
+
+  // Walks upward from a widget and returns the first ancestor of the given type.
+  _findAncestorByType(widget, type) {
+    let parent = widget?.get_parent();
+    while (parent) {
+      if (parent instanceof type) return parent;
+      parent = parent.get_parent();
+    }
+    return null;
   }
 
   // This traverses the widget tree below the given parent recursively and returns the

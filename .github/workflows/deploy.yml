@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: CC0-1.0
 
 name: Deploy
+permissions:
+  contents: write
 
 on:
   push:
@@ -26,7 +28,7 @@ jobs:
         uses: svenstaro/upload-release-action@2.9.0
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: desktop-cube@schneegans.github.com.zip
+          file: desktop-cube-adaptive@eidrien.local.zip
           tag: ${{ github.ref }}
           overwrite: true
           draft: true

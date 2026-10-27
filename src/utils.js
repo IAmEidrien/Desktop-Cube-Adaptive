@@ -72,9 +72,9 @@ export function debug(message) {
   // Remove debug() function call from stack.
   stack.shift();
 
-  // Find the index of the extension directory (e.g. desktop-cube@schneegans.github.com)
+  // Find the index of the extension directory.
   // in the stack entry. We do not want to print the entire absolute file path.
-  const extensionRoot = stack[0].indexOf('desktop-cube@schneegans.github.com');
+  const extensionRoot = stack[0].indexOf('desktop-cube-adaptive@eidrien.local');
 
   console.log('[' + stack[0].slice(extensionRoot) + '] ' + message);
 }

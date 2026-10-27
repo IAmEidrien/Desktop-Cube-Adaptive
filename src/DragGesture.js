@@ -32,9 +32,10 @@ import {Workspace} from 'resource:///org/gnome/shell/ui/workspace.js';
 // below to these two SwipeTracker instances (this is done by the _addDragGesture() of  //
 // the extension class). The gesture is loosely based on the gesture defined here:      //
 // https://gitlab.gnome.org/GNOME/gnome-shell/-/blob/main/js/ui/swipeTracker.js#L89    //
-// It behaves the same in the regard that it reports update events for horizontal       //
-// movements. However, it stores vertical movements as well and makes this accessible   //
-// via the "pitch" property. This is then used for vertical rotations of the cube.      //
+// It can either preserve Desktop Cube's original horizontal carousel-style input or   //
+// follow the active workspace axis. The extension chooses that policy per context so //
+// native desktop transitions can follow GNOME / V-Shell while the Overview stays a //
+// horizontal cube carousel. Orthogonal movement is stored in the "pitch" property. //
 //////////////////////////////////////////////////////////////////////////////////////////
 
 const State = {
@@ -50,7 +51,11 @@ export var DragGesture =
         'distance': GObject.ParamSpec.double(
           'distance', 'distance', 'distance', GObject.ParamFlags.READWRITE, 0, Infinity, 0),
         'pitch': GObject.ParamSpec.double(
-          'pitch', 'pitch', 'pitch', GObject.ParamFlags.READWRITE, 0, 1, 0),
+          'pitch', 'pitch', 'pitch', GObject.ParamFlags.READWRITE, -1, 1, 0),
+        'enabled': GObject.ParamSpec.boolean(
+          'enabled', 'enabled', 'enabled', GObject.ParamFlags.READWRITE, true),
+        'horizontal': GObject.ParamSpec.boolean(
+          'horizontal', 'horizontal', 'horizontal', GObject.ParamFlags.READWRITE, true),
         'sensitivity': GObject.ParamSpec.double(
           'sensitivity', 'sensitivity', 'sensitivity', GObject.ParamFlags.READWRITE, 1, 10, 1),
       },
@@ -65,9 +70,11 @@ export var DragGesture =
   _init(actor, mode) {
     super._init();
 
-    this._actor = actor;
-    this._state = State.INACTIVE;
-    this._mode  = mode;
+    this._actor     = actor;
+    this._state     = State.INACTIVE;
+    this._mode      = mode;
+    this.enabled    = true;
+    this.horizontal = true;
 
     // We listen to the 'captured-event' to be able to intercept some other actions. The
     // main problem is the long-press action of the desktop background actor. This
@@ -97,6 +104,16 @@ export var DragGesture =
   // This is called on every captured event.
   _handleEvent(event) {
 
+    // Desktop Cube can be suspended without disconnecting its captured-event handlers.
+    // This is used while the app grid is active so the gesture cannot compete with app
+    // icons, folders, or V-Shell's app-grid input handling.
+    if (!this.enabled) {
+      if (this._state != State.INACTIVE) {
+        this._cancel();
+      }
+      return Clutter.EVENT_PROPAGATE;
+    }
+
     // Abort if the gesture is not meant for the current action mode (e.g. either
     // Shell.ActionMode.OVERVIEW or Shell.ActionMode.NORMAL).
     if (this._mode != Main.actionMode) {
@@ -108,6 +125,9 @@ export var DragGesture =
     if (Main.actionMode == Shell.ActionMode.OVERVIEW) {
       if (Main.overview._overview.controls._stateAdjustment.value !=
           ControlsState.WINDOW_PICKER) {
+        if (this._state != State.INACTIVE) {
+          this._cancel();
+        }
         return Clutter.EVENT_PROPAGATE;
       }
     }
@@ -168,8 +188,6 @@ export var DragGesture =
       // pointer is moved enough.
       if (this._state == State.PENDING) {
 
-        // Clutter.Settings.get_default() was removed in GNOME 51; St.Settings
-        // reads the same GSettings key (mouse drag-threshold).
         const threshold = St.Settings.get().drag_threshold;
 
         if (Math.abs(currentPos[0] - this._clickPos[0]) > threshold ||
@@ -184,9 +202,10 @@ export var DragGesture =
             }
           }
 
-          this._state                 = State.ACTIVE;
-          [this._lastX, this._startY] = currentPos;
-          this.pitch                  = 0;
+          this._state                  = State.ACTIVE;
+          [this._lastX, this._lastY]   = currentPos;
+          [this._startX, this._startY] = currentPos;
+          this.pitch                   = 0;
           this.emit('begin', event.get_time(), currentPos[0], currentPos[1]);
         }
 
@@ -198,21 +217,32 @@ export var DragGesture =
       // In the active state, we report updates on each movement.
       if (this._state == State.ACTIVE) {
 
-        // Compute the horizontal movement relative to the last call.
-        let deltaX  = currentPos[0] - this._lastX;
-        this._lastX = currentPos[0];
+        // Desktop Cube was designed around horizontal carousel-like dragging. V-Shell's
+        // vertical workspace layout can optionally make the gesture follow the workspace
+        // axis instead. The private fork defaults to preserving horizontal input because
+        // the spire still rotates around the Y axis even though its faces ascend.
+        const verticalLayout   = global.workspace_manager.layout_rows === -1;
+        const useVerticalInput = verticalLayout && !this.horizontal;
+        let delta;
 
-        // Compute the accumulated pitch relative to the screen height.
-        this.pitch = (this._startY - currentPos[1]) / global.screen_height;
+        if (useVerticalInput) {
+          delta       = currentPos[1] - this._lastY;
+          this._lastY = currentPos[1];
+          this.pitch  = (this._startX - currentPos[0]) / global.screen_width;
+        } else {
+          delta       = currentPos[0] - this._lastX;
+          this._lastX = currentPos[0];
+          this.pitch  = (this._startY - currentPos[1]) / global.screen_height;
+        }
 
         // Increase sensitivity.
-        deltaX *= this.sensitivity;
+        delta *= this.sensitivity;
 
-        // Increase horizontal movement if the cube is rotated vertically.
-        deltaX *= Util.lerp(1.0, global.workspaceManager.get_n_workspaces(),
-                            Math.abs(this.pitch));
+        // Increase movement if the cube is rotated on its orthogonal axis.
+        delta *= Util.lerp(1.0, global.workspaceManager.get_n_workspaces(),
+                           Math.abs(this.pitch));
 
-        this.emit('update', event.get_time(), -deltaX, this.distance);
+        this.emit('update', event.get_time(), -delta, this.distance);
 
         return Clutter.EVENT_STOP;
       }
@@ -277,12 +307,8 @@ export var DragGesture =
       return (event.get_state() & buttonMask) == 0;
     } else if (event.type() == Clutter.EventType.TOUCH_END) {
       // For touch, we only obey the pointer emulating sequence.
-      // In GNOME 50 this method got removed.
-      if (typeof (global.display.is_pointer_emulating_sequence) === 'function') {
-        return global.display.is_pointer_emulating_sequence(event.get_event_sequence());
-      }
-
-      return true;
+      return global.display.is_pointer_emulating_sequence?.(event.get_event_sequence()) ??
+        true;
     }
 
     return false;
@@ -291,19 +317,9 @@ export var DragGesture =
   // This is borrowed from here:
   // https://gitlab.gnome.org/GNOME/gnome-shell/-/blob/main/js/ui/dnd.js#L259
   _eventIsMotion(event) {
-    if (event.type() == Clutter.EventType.MOTION) {
-      return true;
-    }
-
-    if (event.type() == Clutter.EventType.TOUCH_UPDATE) {
-      // In GNOME 50 this method got removed.
-      if (typeof (global.display.is_pointer_emulating_sequence) === 'function') {
-        return global.display.is_pointer_emulating_sequence(event.get_event_sequence());
-      }
-
-      return true;
-    }
-
-    return false;
+    return event.type() == Clutter.EventType.MOTION ||
+      (event.type() == Clutter.EventType.TOUCH_UPDATE &&
+       (global.display.is_pointer_emulating_sequence?.(event.get_event_sequence()) ??
+        true));
   }
 });

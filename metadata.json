@@ -1,7 +1,7 @@
 {
-  "uuid": "desktop-cube@schneegans.github.com",
-  "description": "Indulge in nostalgia with useless 3D effects.",
-  "name": "Desktop Cube",
+  "uuid": "desktop-cube-adaptive@eidrien.local",
+  "description": "Desktop Cube with adaptive workspace integration, V-Shell compatibility and dock-aware spatial window dragging.",
+  "name": "Desktop Cube Adaptive",
   "donations": {
     "kofi": "schneegans",
     "github": "schneegans",
@@ -10,6 +10,7 @@
   "gettext-domain": "desktop-cube",
   "settings-schema": "org.gnome.shell.extensions.desktop-cube",
   "shell-version": ["45", "46", "47", "48", "49", "50", "51"],
-  "url": "https://github.com/Schneegans/Desktop-Cube",
-  "version": 35
+  "url": "https://github.com/IAmEidrien/Desktop-Cube-Adaptive",
+  "version": 41,
+  "version-name": "35-adaptive1"
 }
