@@ -1,4 +1,4 @@
 {
-  "commands": [["make", "zip"]],
+  "commands": [["make", "zip"], ["node", "--test", "tests/spatial.test.mjs"]],
   "generic_package": false
 }

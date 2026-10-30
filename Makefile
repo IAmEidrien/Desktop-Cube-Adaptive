@@ -2,26 +2,30 @@
 # SPDX-License-Identifier: MIT
 
 SHELL := /bin/bash
+.DEFAULT_GOAL := zip
 
 # We define these here to make the makefile easier to port to another extension.
 NAME     := desktop-cube
-DOMAIN   := schneegans.github.com
-ZIP_NAME := $(NAME)@$(DOMAIN).zip
+UUID     := desktop-cube-adaptive@eidrien.local
+ZIP_NAME := $(UUID).zip
 
 # Some of the recipes below depend on some of these files.
-JS_FILES       = $(shell find -type f -and \( -name "*.js" \))
+JS_FILES       = extension.js prefs.js $(wildcard src/*.js)
 UI_FILES       = $(shell find -type f -and \( -name "*.ui" \))
 RESOURCE_FILES = $(shell find resources -mindepth 2 -type f)
 LOCALES_PO     = $(wildcard po/*.po)
 LOCALES_MO     = $(patsubst po/%.po,locale/%/LC_MESSAGES/$(NAME).mo,$(LOCALES_PO))
 
 # These files will be included in the extension zip file.
-ZIP_CONTENT = $(JS_FILES) $(LOCALES_MO) resources/$(NAME).gresource \
+ZIP_CONTENT = $(JS_FILES) $(LOCALES_MO) resources/$(NAME).gresource schemas/gschemas.compiled \
               schemas/org.gnome.shell.extensions.$(NAME).gschema.xml \
               metadata.json LICENSE stylesheet.css
 
 # These five recipes can be invoked by the user.
 .PHONY: zip install uninstall pot clean
+
+schemas/gschemas.compiled: schemas/org.gnome.shell.extensions.desktop-cube.gschema.xml
+	glib-compile-schemas --strict schemas
 
 # The zip recipes only bundles the extension without installing it.
 zip: $(ZIP_NAME)
@@ -33,7 +37,7 @@ install: $(ZIP_NAME)
 
 # This uninstalls the previously installed extension.
 uninstall:
-	gnome-extensions uninstall "$(NAME)@$(DOMAIN)"
+	gnome-extensions uninstall "$(UUID)"
 
 # Use gettext to generate a translation template file.
 pot: $(JS_FILES) $(UI_FILES)

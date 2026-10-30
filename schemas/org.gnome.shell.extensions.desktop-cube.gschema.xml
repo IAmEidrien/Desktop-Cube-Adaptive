@@ -9,6 +9,11 @@ SPDX-License-Identifier: CC0-1.0
 
   <schema path="/org/gnome/shell/extensions/desktop-cube/" id="org.gnome.shell.extensions.desktop-cube">
 
+    <key name="spatial-overview" type="b"><default>false</default><summary>Enable spatial window dragging</summary></key>
+    <key name="spatial-auto-edge" type="b"><default>true</default><summary>Use edge opposite the dock</summary></key>
+    <key name="spatial-edge" type="s"><default>'top'</default><choices><choice value="top"/><choice value="right"/><choice value="bottom"/><choice value="left"/></choices><summary>Fallback or manual activation edge</summary></key>
+    <key name="spatial-edge-delay-ms" type="u"><default>200</default><range min="0" max="2000"/><summary>Edge dwell in milliseconds</summary></key>
+
     <!-- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -->
     <!-- general settings                                                              -->
     <!-- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -->
@@ -23,6 +28,12 @@ SPDX-License-Identifier: CC0-1.0
       <default>true</default>
       <summary>Last First Gap</summary>
       <description>Add a gap between last and first workspace.</description>
+    </key>
+
+    <key name="allow-workspace-looping" type="b">
+      <default>false</default>
+      <summary>Allow Workspace Looping</summary>
+      <description>Allow workspace navigation to wrap from the last visible workspace to the first and vice versa.</description>
     </key>
 
     <key name="do-explode" type="b">
@@ -53,6 +64,18 @@ SPDX-License-Identifier: CC0-1.0
       <default>2.0</default>
       <summary>Mouse Rotation Speed</summary>
       <description>A multiplier for the desktop cube rotation when dragged.</description>
+    </key>
+
+    <key name="horizontal-workspace-input" type="b">
+      <default>true</default>
+      <summary>Use Horizontal Workspace Input</summary>
+      <description>Use horizontal dragging, workspace swipe tracking, and edge switching where Desktop Cube owns the spatial model. The Overview always honors this preference; ordinary desktop switching honors it only while Desktop Cube's desktop animation is enabled.</description>
+    </key>
+
+    <key name="enable-desktop-workspace-cube-animation" type="b">
+      <default>false</default>
+      <summary>Enable Desktop Workspace Cube Animation</summary>
+      <description>Use Desktop Cube's 3D transform when switching workspaces outside the overview. Disable to keep GNOME or V-Shell's native desktop workspace transition.</description>
     </key>
 
     <!-- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -->
@@ -103,6 +126,18 @@ SPDX-License-Identifier: CC0-1.0
       <default>80</default>
       <summary>Horizontal Stretch</summary>
       <description>The widening factor which ensures that cube sides are visible from the front.</description>
+    </key>
+
+    <key name="hide-empty-workspace" type="b">
+      <default>false</default>
+      <summary>Hide Empty Workspace</summary>
+      <description>Hide the trailing empty workspace from the overview cube when dynamic workspaces are enabled.</description>
+    </key>
+
+    <key name="hide-wallpaper" type="b">
+      <default>false</default>
+      <summary>Hide Wallpaper</summary>
+      <description>Hide per-workspace wallpaper faces in the overview so another extension can own the background.</description>
     </key>
 
     <key name="active-workpace-opacity" type="i">
