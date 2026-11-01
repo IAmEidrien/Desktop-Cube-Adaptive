@@ -34,3 +34,7 @@ Keep direct Git/Gitpulsar installs usable: regenerate committed resources/locale
 when their sources change and compile schemas when installing. Disable the old
 Cube UUID before enabling the Adaptive UUID; the GSettings schema stays shared
 to preserve existing preferences.
+
+License policy: follow LICENSING.md. Prefer MIT for independent original work,
+then GPL-2.0-or-later where compatible; preserve stricter upstream grants,
+attribution and asset licenses. Never infer permission for unlicensed code.
