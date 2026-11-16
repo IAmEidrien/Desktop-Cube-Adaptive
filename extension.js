@@ -31,6 +31,7 @@ import * as utils from './src/utils.js';
 import {DragGesture} from './src/DragGesture.js';
 import {Skybox} from './src/Skybox.js';
 import {SpatialOverview} from './src/SpatialOverview.js';
+import {PeerLifecycle} from './src/PeerLifecycle.js';
 
 //////////////////////////////////////////////////////////////////////////////////////////
 // This extensions tweaks the positioning of workspaces in overview mode and while      //
@@ -55,7 +56,9 @@ export default class DesktopCube extends Extension {
   enable() {
 
     // Store a reference to the settings object.
-    this._settings = this.getSettings();
+    this._settings           = this.getSettings();
+    this._settingConnections = [];
+    this._lastWorkspaceWidth = 0;
 
     // Remember the workspace SwipeTracker orientations we encounter before forcing the
     // optional horizontal-carousel policy. This lets us opt out or disable the extension
@@ -515,7 +518,10 @@ export default class DesktopCube extends Extension {
           m.connect('notify::progress', () => updateMonitorGroup(m));
 
         // Call the method above whenever a gesture is active.
-        const orig              = m.updateSwipeForMonitor;
+        const orig                  = m.updateSwipeForMonitor;
+        m._desktopCubeSwipeOriginal = orig;
+        m._desktopCubeSwipeDescriptor =
+          Object.getOwnPropertyDescriptor(m, 'updateSwipeForMonitor');
         m.updateSwipeForMonitor = function(progress, baseMonitorGroup) {
           orig.apply(m, [progress, baseMonitorGroup]);
           updateMonitorGroup(m);
@@ -555,6 +561,7 @@ export default class DesktopCube extends Extension {
             m.disconnect(m._desktopCubeProgressID);
             delete m._desktopCubeProgressID;
           }
+          extensionThis._restoreAnimationSwipe(m);
         });
       }
 
@@ -624,7 +631,7 @@ export default class DesktopCube extends Extension {
       this._addDesktopDragGesture();
     }
 
-    this._settings.connect('changed::enable-desktop-dragging', () => {
+    this._connectSetting('changed::enable-desktop-dragging', () => {
       if (this._settings.get_boolean('enable-desktop-dragging')) {
         this._addDesktopDragGesture();
       } else {
@@ -637,7 +644,7 @@ export default class DesktopCube extends Extension {
       this._addPanelDragGesture();
     }
 
-    this._settings.connect('changed::enable-panel-dragging', () => {
+    this._connectSetting('changed::enable-panel-dragging', () => {
       if (this._settings.get_boolean('enable-panel-dragging')) {
         this._addPanelDragGesture();
       } else {
@@ -650,7 +657,7 @@ export default class DesktopCube extends Extension {
       this._addOverviewDragGesture();
     }
 
-    this._settings.connect('changed::enable-overview-dragging', () => {
+    this._connectSetting('changed::enable-overview-dragging', () => {
       if (this._settings.get_boolean('enable-overview-dragging')) {
         this._addOverviewDragGesture();
       } else {
@@ -664,11 +671,11 @@ export default class DesktopCube extends Extension {
     // cube animation hands both the visuals and the input axis back to GNOME / V-Shell.
     // This keeps touchpad swipes, single-pointer drags, and window edge-dragging aligned
     // with the animation the user is actually seeing.
-    this._horizontalInputSettingsID = this._settings.connect(
+    this._horizontalInputSettingsID = this._connectSetting(
       'changed::horizontal-workspace-input', () => this._syncWorkspaceInputPolicy());
     this._desktopAnimationInputSettingsID =
-      this._settings.connect('changed::enable-desktop-workspace-cube-animation',
-                             () => this._syncWorkspaceInputPolicy());
+      this._connectSetting('changed::enable-desktop-workspace-cube-animation',
+                           () => this._syncWorkspaceInputPolicy());
     this._syncWorkspaceInputPolicy();
 
     // Suspend every Desktop Cube overview drag path as soon as the app grid takes over.
@@ -689,24 +696,17 @@ export default class DesktopCube extends Extension {
     this._extensionCompatibilityID =
       Main.extensionManager.connect('extension-state-changed', (manager, extension) => {
         if (extension.uuid === 'vertical-workspaces@G-dH.github.com') {
-          // If V-Shell was enabled after Desktop Cube, its override manager may restore
-          // our wrapper verbatim when V-Shell is disabled. Reset the wrapper delegates to
-          // the methods we saw at startup before rebasing, avoiding a call into V-Shell's
-          // closed-over state after that extension has been torn down.
+          if (extension.state === 1) this._attachPeerLifecycle(extension.stateObj);
           if (extension.state === 2) {
-            this._origUpdateWorkspacesState =
-              this._initialWorkspaceViewMethods.updateState;
-            this._origGetSpacing = this._initialWorkspaceViewMethods.getSpacing;
-            this._origUpdateVisibility =
-              this._initialWorkspaceViewMethods.updateVisibility;
-            this._origPrepSwitch  = this._initialWorkspaceAnimationMethods.prepare;
-            this._origFinalSwitch = this._initialWorkspaceAnimationMethods.finish;
-            this._origGetNeighbor = this._initialGetNeighbor;
+            this._peerLifecycle?.destroy();
+            this._peerLifecycle = null;
           }
           this._ensureCompatibilityPatches();
           this._syncWorkspaceInputPolicy();
         }
       });
+    const peer = Main.extensionManager.lookup('vertical-workspaces@G-dH.github.com');
+    if (peer?.state === 1) this._attachPeerLifecycle(peer.stateObj);
     this._ensureCompatibilityPatches();
 
     // Geometry / visibility settings should take effect immediately when preferences are
@@ -714,7 +714,7 @@ export default class DesktopCube extends Extension {
     // WorkspacesView recompute its transforms without requiring a workspace gesture.
     ['hide-wallpaper', 'hide-empty-workspace', 'allow-workspace-looping',
      'last-first-gap']
-      .forEach(key => this._settings.connect(`changed::${key}`, () => {
+      .forEach(key => this._connectSetting(`changed::${key}`, () => {
         this._queueOverviewCubeUpdate();
       }));
 
@@ -754,7 +754,7 @@ export default class DesktopCube extends Extension {
     };
 
     // Update the skybox whenever the corresponding setting is changed.
-    this._settings.connect('changed::background-panorama', updateSkybox);
+    this._connectSetting('changed::background-panorama', updateSkybox);
     updateSkybox();
 
     // Update vertical rotation of the background panorama.
@@ -796,7 +796,7 @@ export default class DesktopCube extends Extension {
       new PressureBarrier(this._settings.get_int('edge-switch-pressure'), 1000, 0);
 
     // Update pressure threshold when the corresponding settings key changes.
-    this._settings.connect('changed::edge-switch-pressure', () => {
+    this._connectSetting('changed::edge-switch-pressure', () => {
       this._pressureBarrier._threshold = this._settings.get_int('edge-switch-pressure');
     });
 
@@ -950,9 +950,9 @@ export default class DesktopCube extends Extension {
     this._overviewEdgeShowingID = Main.overview.connect('showing', createBarriers);
     this._overviewEdgeHiddenID  = Main.overview.connect('hidden', createBarriers);
     this._desktopEdgeSettingID =
-      this._settings.connect('changed::enable-desktop-edge-switch', createBarriers);
+      this._connectSetting('changed::enable-desktop-edge-switch', createBarriers);
     this._overviewEdgeSettingID =
-      this._settings.connect('changed::enable-overview-edge-switch', createBarriers);
+      this._connectSetting('changed::enable-overview-edge-switch', createBarriers);
 
     createBarriers();
     this._syncWorkspaceSwipeOrientation();
@@ -1035,7 +1035,7 @@ export default class DesktopCube extends Extension {
       }
     };
 
-    this._settings.connect('changed::per-monitor-perspective', updateMonitorPerspective);
+    this._connectSetting('changed::per-monitor-perspective', updateMonitorPerspective);
     this._monitorsChangedID = global.backend.get_monitor_manager().connect(
       'monitors-changed', updateMonitorPerspective);
 
@@ -1046,6 +1046,9 @@ export default class DesktopCube extends Extension {
   // This function could be called after the extension is uninstalled, disabled in GNOME
   // Tweaks, when you log out or when the screen locks.
   disable() {
+    this._releaseOwnedAnimation();
+    this._peerLifecycle?.destroy();
+    this._peerLifecycle = null;
     this._spatial?.destroy();
     this._spatial                   = null;
     this._refreshEdgeSwitchBarriers = null;
@@ -1084,14 +1087,9 @@ export default class DesktopCube extends Extension {
       Main.extensionManager.disconnect(this._extensionCompatibilityID);
       this._extensionCompatibilityID = 0;
     }
-    if (this._horizontalInputSettingsID) {
-      this._settings.disconnect(this._horizontalInputSettingsID);
-      this._horizontalInputSettingsID = 0;
-    }
-    if (this._desktopAnimationInputSettingsID) {
-      this._settings.disconnect(this._desktopAnimationInputSettingsID);
-      this._desktopAnimationInputSettingsID = 0;
-    }
+    for (const id of this._settingConnections) this._settings.disconnect(id);
+    this._settingConnections = [];
+    this._resetCubeOverview();
 
     // Restore V-Shell / Mutter's natural workspace swipe axis before removing our custom
     // drag adapters. This avoids leaving horizontal input behind when the fork is
@@ -1132,9 +1130,6 @@ export default class DesktopCube extends Extension {
     if (this._overviewEdgeShowingID)
       Main.overview.disconnect(this._overviewEdgeShowingID);
     if (this._overviewEdgeHiddenID) Main.overview.disconnect(this._overviewEdgeHiddenID);
-    if (this._desktopEdgeSettingID) this._settings.disconnect(this._desktopEdgeSettingID);
-    if (this._overviewEdgeSettingID)
-      this._settings.disconnect(this._overviewEdgeSettingID);
     global.display.disconnect(this._grabOpBeginID);
     global.display.disconnect(this._grabOpEndID);
 
@@ -1156,6 +1151,14 @@ export default class DesktopCube extends Extension {
     this._workspaceSwipeNaturalOrientations = null;
     this._workspaceSwipeForcedHorizontal    = null;
     this._settings                          = null;
+    this._initialWorkspaceViewMethods = this._initialWorkspaceAnimationMethods = null;
+    this._initialGetNeighbor                                                   = null;
+    for (const field
+           of ['_cubeUpdateVisibility', '_cubeGetSpacing', '_cubeUpdateWorkspacesState',
+               '_cubeGetNeighbor', '_cubePrepSwitch', '_cubeFinalSwitch',
+               '_origUpdateVisibility', '_origGetSpacing', '_origUpdateWorkspacesState',
+               '_origGetNeighbor', '_origPrepSwitch', '_origFinalSwitch'])
+      this[field] = null;
   }
 
   // ----------------------------------------------------------------------- private stuff
@@ -1280,6 +1283,122 @@ export default class DesktopCube extends Extension {
     });
     this._workspaceSwipeNaturalOrientations.clear();
     this._workspaceSwipeForcedHorizontal.clear();
+  }
+
+  _connectSetting(...args) {
+    const id = this._settings.connect(...args);
+    this._settingConnections.push(id);
+    return id;
+  }
+
+  _restoreAnimationSwipe(m) {
+    if (m._desktopCubeSwipeOriginal) {
+      if (m._desktopCubeSwipeDescriptor)
+        Object.defineProperty(m, 'updateSwipeForMonitor', m._desktopCubeSwipeDescriptor);
+      else
+        delete m.updateSwipeForMonitor;
+    }
+    delete m._desktopCubeSwipeOriginal;
+    delete m._desktopCubeSwipeDescriptor;
+  }
+
+  _releaseOwnedAnimation() {
+    const controller = Main.wm._workspaceAnimation;
+    const data       = controller._switchData;
+    if (!controller._desktopCubeAnimationActive || !data) return;
+    for (const m of data.monitors) {
+      if (m._desktopCubeProgressID) m.disconnect(m._desktopCubeProgressID);
+      delete m._desktopCubeProgressID;
+      this._restoreAnimationSwipe(m);
+      m._container.translation_x      = m._container.pivot_point_z =
+        m._container.rotation_angle_x = 0;
+      for (const face of m._workspaceGroups) {
+        face.rotation_angle_y = face.pivot_point_z = face.translation_x =
+          face.translation_z                       = 0;
+        face.clip_to_allocation                    = true;
+        face._background.opacity                   = 255;
+        for (const r of face._windowRecords) r.clone.translation_z = 0;
+      }
+    }
+    delete controller._desktopCubeAnimationActive;
+    // Never destroy an animation with a pending Shell completion callback. It
+    // must finish normally to release the WM operation and reenable swiping.
+    if (!data.inProgress && !data.baseMonitorGroup)
+      controller._finishWorkspaceSwitch(data);
+  }
+
+  _patchEntries() {
+    return [
+      [
+        WorkspacesView.prototype, '_updateVisibility', '_cubeUpdateVisibility',
+        '_origUpdateVisibility', this._initialWorkspaceViewMethods.updateVisibility
+      ],
+      [
+        WorkspacesView.prototype, '_getSpacing', '_cubeGetSpacing', '_origGetSpacing',
+        this._initialWorkspaceViewMethods.getSpacing
+      ],
+      [
+        WorkspacesView.prototype, '_updateWorkspacesState', '_cubeUpdateWorkspacesState',
+        '_origUpdateWorkspacesState', this._initialWorkspaceViewMethods.updateState
+      ],
+      [
+        Meta.Workspace.prototype, 'get_neighbor', '_cubeGetNeighbor', '_origGetNeighbor',
+        this._initialGetNeighbor
+      ],
+      [
+        Main.wm._workspaceAnimation, '_prepareWorkspaceSwitch', '_cubePrepSwitch',
+        '_origPrepSwitch', this._initialWorkspaceAnimationMethods.prepare
+      ],
+      [
+        Main.wm._workspaceAnimation, '_finishWorkspaceSwitch', '_cubeFinalSwitch',
+        '_origFinalSwitch', this._initialWorkspaceAnimationMethods.finish
+      ],
+    ];
+  }
+
+  _attachPeerLifecycle(peer) {
+    if (this._peerLifecycle) return;
+    this._peerLifecycle = new PeerLifecycle(
+      peer,
+      () => {
+        this._releaseOwnedAnimation();
+        this._restoreWorkspaceSwipeOrientation();
+        for (const [target, name, wrapper, original] of this._patchEntries())
+          if (target[name] === this[wrapper]) target[name] = this[original];
+        this._resetCubeOverview();
+      },
+      name => {
+        if (!this._settings) return;
+        if (name === 'disable') {
+          // A peer enabled after Cube can restore Cube from its own backup. Its
+          // old delegate is now dead; the startup delegate predates that peer.
+          for (const [target, symbol, wrapper, original, initial] of this._patchEntries())
+            if (target[symbol] === this[wrapper]) this[original] = initial;
+        }
+        this._ensureCompatibilityPatches();
+        this._syncWorkspaceInputPolicy();
+        this._queueOverviewCubeUpdate();
+      });
+  }
+
+  _resetCubeOverview() {
+    const display = Main.overview?._overview?.controls?._workspacesDisplay;
+    for (const outer of display?._workspacesViews ?? []) {
+      const view = outer._workspacesView ?? outer;
+      if (!view._workspaces) continue;
+      view.rotation_angle_x = 0;
+      view.pivot_point_z    = 0;
+      for (const w of view._workspaces) {
+        w.rotation_angle_y = w.pivot_point_z = 0;
+        w.translation_x = w.translation_y = w.translation_z = 0;
+        w.set_scale(1, 1);
+        w._background.opacity      = 255;
+        w._container.translation_z = 0;
+        for (const actor of w._container.get_children()) actor.translation_z = 0;
+      }
+      view._updateWorkspacesState();
+      view.queue_relayout();
+    }
   }
 
   _shouldHideEmptyWorkspace() {
