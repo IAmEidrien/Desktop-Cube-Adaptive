@@ -24,6 +24,9 @@ import {registerImageChooserButton} from './src/ImageChooserButton.js';
 // we might consider to improve its layout...                                           //
 //////////////////////////////////////////////////////////////////////////////////////////
 
+import {WorkspacePolicy} from './src/WorkspacePolicy.js';
+import {ShellPeerSettings} from './src/ShellPeerSettings.js';
+
 export default class DesktopCubePreferences extends ExtensionPreferences {
 
   // -------------------------------------------------------------------- public interface
@@ -76,7 +79,7 @@ export default class DesktopCubePreferences extends ExtensionPreferences {
     // Add Adaptive options which are not part of the upstream UI resource.
     // Keeping these rows programmatic lets this fork remain a drop-in package without
     // rebuilding Desktop Cube's compiled GResource archive.
-    this._addForkOptions();
+    this._addForkOptions(window);
 
     // Inject the video link.
     const label    = this._builder.get_object('central-perspective-row');
@@ -163,7 +166,7 @@ export default class DesktopCubePreferences extends ExtensionPreferences {
 
   // Adds settings which exist only in this fork. The upstream preferences UI is
   // shipped as a compiled GResource, so these rows are inserted at runtime.
-  _addForkOptions() {
+  _addForkOptions(window) {
     const createSwitchRow = (settingsKey, title, subtitle) => {
       const row = new Adw.ActionRow({
         title: _(title),
@@ -201,14 +204,13 @@ export default class DesktopCubePreferences extends ExtensionPreferences {
 
     const originalGapSubtitle  = lastFirstRow.subtitle;
     const updateGapSensitivity = () => {
-      const looping          = this._settings.get_boolean('allow-workspace-looping');
+      const looping          = policy.get('allow-workspace-looping');
       lastFirstRow.sensitive = !looping;
       lastFirstRow.subtitle  = looping ?
          _('The cube is closed into a full loop while workspace looping is enabled.') :
          originalGapSubtitle;
     };
-    this._settings.connect('changed::allow-workspace-looping', updateGapSensitivity);
-    updateGapSensitivity();
+
 
     const horizontalInputRow = createSwitchRow(
       'horizontal-workspace-input', 'Use horizontal workspace input',
@@ -275,6 +277,22 @@ export default class DesktopCubePreferences extends ExtensionPreferences {
     const hideWallpaperRow = createSwitchRow(
       'hide-wallpaper', 'Hide wallpaper',
       'Let V-Shell, Blur my Shell, or the overview background show through the cube faces.');
+
+    const policy = new WorkspacePolicy(this._settings, () => {
+      hideEmptyRow.visible = loopRow.visible = !policy.owned;
+      updateGapSensitivity();
+    });
+    const local  = this._settings;
+    const localID =
+      local.connect('changed::allow-workspace-looping', updateGapSensitivity);
+    const watcher = new ShellPeerSettings(peer => policy.setPeer(peer));
+    updateGapSensitivity();
+    window.connect('close-request', () => {
+      watcher.destroy();
+      policy.destroy();
+      local.disconnect(localID);
+      return false;
+    });
 
     overviewGroup.add(hideEmptyRow);
     overviewGroup.add(hideWallpaperRow);

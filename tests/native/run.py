@@ -17,6 +17,7 @@ import subprocess
 import time
 
 parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--checkpoint', choices=['spatial','peer','1','2','3'], default='spatial')
 parser.add_argument('--output', type=Path, required=True)
 parser.add_argument('--version', default='46')
 parser.add_argument('--vshell', type=Path)
@@ -64,9 +65,12 @@ probe.mkdir()
     'uuid': probe.name, 'name': 'Cube native test', 'description': 'Isolated test',
     'shell-version': [args.version],
 }))
-shutil.copy(source / 'probe.js', probe / 'extension.js')
+shutil.copy(source / ('probe.js' if args.checkpoint == 'spatial' else 'compatibility.js'), probe / 'extension.js')
 shutil.copy(source / 'client.js', root / 'client.js')
-env = dict(os.environ, REVIEW_ROOT=str(root), TEST_MONITORS=str(args.monitors),
+shutil.copy(source / 'policyPrefs.js', root / 'policyPrefs.js')
+shutil.copy(source / 'policyProbe.js', probe / 'policyProbe.js')
+shutil.copy(source / 'stickyProbe.js', probe / 'stickyProbe.js')
+env = dict(os.environ, TEST_CHECKPOINT=args.checkpoint, REVIEW_ROOT=str(root), TEST_MONITORS=str(args.monitors),
            TEST_VSHELL='1' if args.vshell else '', TEST_DOCK='1' if args.dock else '',
            LIBGL_ALWAYS_SOFTWARE='1', GALLIUM_DRIVER='llvmpipe',
            XDG_CONFIG_HOME=str(root / 'config'), XDG_DATA_HOME=str(root / 'data'),
@@ -109,7 +113,7 @@ with (root / 'shell.log').open('w') as log:
     process = subprocess.Popen(['bash', '-c', session], env=env, stdout=log,
                                stderr=subprocess.STDOUT, start_new_session=True)
     try:
-        for _ in range(120):
+        for _ in range(240):
             if (root / 'result.json').exists():
                 result = json.loads((root / 'result.json').read_text())
                 print(json.dumps(result), flush=True)

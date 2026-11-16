@@ -98,3 +98,48 @@ test('secondary monitor fit bounds and a V-Shell app-grid fit policy are restore
   assert.equal(f.fit.value, 0);assert.equal(secondary.value, 0);assert.equal(secondary.upper, 0);
   f.spatial.destroy();
 });
+
+test('peer lifecycle brackets nested rebuilds and restores inherited methods', () => {
+  const {PeerLifecycle} = load('src/PeerLifecycle.js', ['PeerLifecycle']);
+  const events = [];
+  class Peer {
+    _updateOverrides() { events.push('update'); this._repairOverrides(); }
+    _repairOverrides() { events.push('repair'); }
+    disable() { events.push('disable'); }
+  }
+  const peer = new Peer(), original = peer._updateOverrides;
+  const bridge = new PeerLifecycle(peer, n => events.push(`before:${n}`), n => events.push(`after:${n}`));
+  peer._updateOverrides();
+  assert.deepEqual(events, ['before:_updateOverrides','update','repair','after:_updateOverrides']);
+  const retained = peer._updateOverrides;
+  bridge.destroy();
+  assert.equal(peer._updateOverrides, original);
+  assert.equal(Object.hasOwn(peer,'_updateOverrides'), false);
+  events.length = 0;retained.call(peer);
+  assert.deepEqual(events,['update','repair']);
+});
+
+test('effective workspace policy never writes settings and restores local ownership', () => {
+  const {WorkspacePolicy}=load('src/WorkspacePolicy.js',['WorkspacePolicy']);
+  const local=new Signals(), peer=new Signals();let changes=0;
+  local.get_boolean=k=>k==='hide-empty-workspace';
+  peer.get_boolean=k=>k==='ws-switcher-wraparound';
+  const policy=new WorkspacePolicy(local,()=>changes++);
+  assert.equal(policy.get('hide-empty-workspace'),true);
+  policy.setPeer(peer);
+  assert.equal(policy.owned,true);
+  assert.equal(policy.get('hide-empty-workspace'),false);
+  assert.equal(policy.get('allow-workspace-looping'),true);
+  assert.equal(peer.handlers.size,2);
+  policy.setPeer(null);
+  assert.equal(peer.handlers.size,0);
+  assert.equal(policy.get('hide-empty-workspace'),true);
+  policy.destroy();assert.equal(changes,2);
+});
+
+test('sticky presentation chooses exactly the active face without changing membership', () => {
+  const {stickyOnFace}=load('src/StickyPresentation.js',['stickyOnFace']);
+  for(const active of [0,1,2])assert.deepEqual([0,1,2].filter(i=>stickyOnFace(true,i,active)),[active]);
+  assert.equal(stickyOnFace(false,1,0),true);
+  assert.equal(stickyOnFace(true,null,0),true);
+});
