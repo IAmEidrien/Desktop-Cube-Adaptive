@@ -32,6 +32,7 @@ import {DragGesture} from './src/DragGesture.js';
 import {Skybox} from './src/Skybox.js';
 import {SpatialOverview} from './src/SpatialOverview.js';
 import {PeerLifecycle} from './src/PeerLifecycle.js';
+import {WorkspacePolicy} from './src/WorkspacePolicy.js';
 
 //////////////////////////////////////////////////////////////////////////////////////////
 // This extensions tweaks the positioning of workspaces in overview mode and while      //
@@ -59,6 +60,8 @@ export default class DesktopCube extends Extension {
     this._settings           = this.getSettings();
     this._settingConnections = [];
     this._lastWorkspaceWidth = 0;
+    this._workspacePolicy =
+      new WorkspacePolicy(this._settings, () => this._queueOverviewCubeUpdate());
 
     // Remember the workspace SwipeTracker orientations we encounter before forcing the
     // optional horizontal-carousel policy. This lets us opt out or disable the extension
@@ -701,12 +704,14 @@ export default class DesktopCube extends Extension {
             this._peerLifecycle?.destroy();
             this._peerLifecycle = null;
           }
+          this._refreshWorkspacePolicy();
           this._ensureCompatibilityPatches();
           this._syncWorkspaceInputPolicy();
         }
       });
     const peer = Main.extensionManager.lookup('vertical-workspaces@G-dH.github.com');
     if (peer?.state === 1) this._attachPeerLifecycle(peer.stateObj);
+    this._refreshWorkspacePolicy();
     this._ensureCompatibilityPatches();
 
     // Geometry / visibility settings should take effect immediately when preferences are
@@ -1150,7 +1155,9 @@ export default class DesktopCube extends Extension {
     // Make sure that the settings object is freed.
     this._workspaceSwipeNaturalOrientations = null;
     this._workspaceSwipeForcedHorizontal    = null;
-    this._settings                          = null;
+    this._workspacePolicy.destroy();
+    this._workspacePolicy             = null;
+    this._settings                    = null;
     this._initialWorkspaceViewMethods = this._initialWorkspaceAnimationMethods = null;
     this._initialGetNeighbor                                                   = null;
     for (const field
@@ -1375,6 +1382,7 @@ export default class DesktopCube extends Extension {
           for (const [target, symbol, wrapper, original, initial] of this._patchEntries())
             if (target[symbol] === this[wrapper]) this[original] = initial;
         }
+        this._refreshWorkspacePolicy();
         this._ensureCompatibilityPatches();
         this._syncWorkspaceInputPolicy();
         this._queueOverviewCubeUpdate();
@@ -1401,8 +1409,15 @@ export default class DesktopCube extends Extension {
     }
   }
 
+  _refreshWorkspacePolicy() {
+    const info = Main.extensionManager.lookup('vertical-workspaces@G-dH.github.com');
+    const peer =
+      info?.state === 1 && info.stateObj?._enabled !== false ? info.stateObj : null;
+    this._workspacePolicy?.setPeer(peer ? peer.getSettings() : null);
+  }
+
   _shouldHideEmptyWorkspace() {
-    return this._settings?.get_boolean('hide-empty-workspace') &&
+    return this._workspacePolicy?.get('hide-empty-workspace') &&
       Meta.prefs_get_dynamic_workspaces() &&
       global.workspace_manager.get_n_workspaces() > 1;
   }
@@ -1443,8 +1458,8 @@ export default class DesktopCube extends Extension {
 
   _resolveWorkspaceNeighbor(workspace, direction, neighbor) {
     const hideEmpty = this._shouldHideEmptyWorkspace();
-    const looping   = this._settings?.get_boolean('allow-workspace-looping');
-    if (!hideEmpty && !looping) {
+    const looping   = this._workspacePolicy?.get('allow-workspace-looping');
+    if (!hideEmpty && !looping && !this._workspacePolicy?.owned) {
       return neighbor;
     }
 
@@ -1456,6 +1471,13 @@ export default class DesktopCube extends Extension {
     const currentIndex  = workspace.index();
     const lastVisible   = this._getLastVisibleWorkspaceIndex();
     const neighborIndex = neighbor?.index?.() ?? currentIndex;
+
+    // V-Shell batches option-cache refreshes. A just-disabled wrap preference
+    // must not accept a wrapped neighbor from its previous cached value.
+    if (this._workspacePolicy?.owned && !looping &&
+        ((currentIndex === 0 && delta < 0 && neighborIndex > currentIndex) ||
+         (currentIndex >= lastVisible && delta > 0 && neighborIndex < currentIndex)))
+      return workspace;
 
     // If the underlying implementation points at the hidden dynamic workspace, treat it
     // as the end of the visible sequence. With looping enabled, continue at workspace 0;
@@ -1584,7 +1606,7 @@ export default class DesktopCube extends Extension {
     // Looping makes the topology explicitly circular, so the first and last visible
     // workspace must be adjacent faces. For two workspaces this naturally produces two
     // opposite sides of a flat 180° surface.
-    if (this._settings.get_boolean('allow-workspace-looping')) {
+    if (this._workspacePolicy.get('allow-workspace-looping')) {
       return 360.0 / faceCount;
     }
 

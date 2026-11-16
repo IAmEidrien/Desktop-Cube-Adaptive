@@ -53,3 +53,44 @@ rendering; hardware gesture behavior is not established by virtual input.
 
 Validation: `python3 .github/scripts/validate.py`, the spatial/peer lifecycle
 regressions, clang-format 18 and REUSE lint pass. No resources or locales changed.
+
+## Checkpoint 2: effective workspace policy
+
+The two confirmed equivalent workspace preferences now have runtime ownership:
+V-Shell's `ws-switcher-ignore-last` and `ws-switcher-wraparound` govern the
+Cube equivalents while V-Shell is active. DC-A retains its own saved values.
+There are no synchronization, migration or reset writes. Dynamic workspace
+exclusion still affects cube geometry; static workspaces remain present.
+Disabled looping clamps wrapped neighbors even during V-Shell's delayed option
+cache refresh. The effective loop state also controls closed-loop face geometry.
+
+Preferences query the actual Shell extension state over the public Extensions
+D-Bus interface, including name-owner changes and already-open windows. They
+hide both locally owned rows during peer ownership and derive gap sensitivity
+from the effective wrap value. Local and system schema lookup follow GNOME's
+extension settings lookup rules. Pending calls and peer signals are cancelled
+on close. A missing V-Shell installation or absent Shell bus leaves standalone
+preferences usable.
+
+Native checkpoint tests pass on 46.0 Wayland (19 checks, including immediate
+neighbor clamping), 46.0 X11, 48.7 Wayland, 50.1 Wayland and 51.0 Wayland/two
+monitors (18 checks each). These runs launch the actual preferences process on
+the same isolated session bus and check live visibility, gap sensitivity,
+geometry policy, dynamic/static workspaces and preserved saved values. The
+fixture waits for V-Shell's initial delayed profile transaction before making
+its own explicit test writes. This avoids confusing peer initialization with
+an integration write. Automated tests, formatting and REUSE checks pass.
+System-prefix schema fallback is source-reviewed; native peer installs use
+local compiled schemas. Peer-only limitations from checkpoint 1 still apply.
+
+No further settings were consolidated. Cube desktop animation versus V-Shell
+animation controls, horizontal carousel input versus workspace orientation,
+workspace backgrounds versus per-face opacity/perspective, and spatial dragging
+versus edge switching have distinct scopes. Their independent controls remain.
+
+Downstream callers must use effective runtime policy rather than infer it from
+the local saved GSettings key. In particular `_shouldHideEmptyWorkspace()`
+includes policy ownership and the dynamic-workspace condition. Consumers reading
+only the saved flag need a follow-up update; no other repository was modified.
+The README's description of the two Cube rows needs maintainer review to explain
+conditional V-Shell ownership. Publication remains paused pending that review.

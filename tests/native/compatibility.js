@@ -81,6 +81,12 @@ export default class Probe extends Extension {
       Main.overview.hide();
       await wait(600);
     };
+    if (GLib.getenv('TEST_CHECKPOINT') === '2') {
+      const {runPolicy} = await import('./policyProbe.js');
+      await runPolicy({root, cubeID, peerID, toggle, check, wait});
+      this.save({pass: true, shell: Config.PACKAGE_VERSION, checkpoint: 2});
+      return;
+    }
     if (GLib.getenv('TEST_CHECKPOINT') === 'peer') {
       for (let cycle = 0; cycle < 3; cycle++) {
         await toggle(peerID, true);
