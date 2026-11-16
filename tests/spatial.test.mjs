@@ -136,3 +136,10 @@ test('effective workspace policy never writes settings and restores local owners
   assert.equal(policy.get('hide-empty-workspace'),true);
   policy.destroy();assert.equal(changes,2);
 });
+
+test('sticky presentation chooses exactly the active face without changing membership', () => {
+  const {stickyOnFace}=load('src/StickyPresentation.js',['stickyOnFace']);
+  for(const active of [0,1,2])assert.deepEqual([0,1,2].filter(i=>stickyOnFace(true,i,active)),[active]);
+  assert.equal(stickyOnFace(false,1,0),true);
+  assert.equal(stickyOnFace(true,null,0),true);
+});

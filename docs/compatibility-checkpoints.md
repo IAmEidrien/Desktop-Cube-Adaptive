@@ -3,7 +3,8 @@
 
 # Cube compatibility checkpoints
 
-This candidate is incomplete and must remain paused with `do-not-merge`.
+This candidate must remain paused with `do-not-merge` pending maintainer documentation
+review and the peer limitations recorded below.
 The existing seven-day promotion interval and current-head validation requirements
 remain unchanged. README feature descriptions are human-maintained.
 
@@ -94,3 +95,88 @@ includes policy ownership and the dynamic-workspace condition. Consumers reading
 only the saved flag need a follow-up update; no other repository was modified.
 The README's description of the two Cube rows needs maintainer review to explain
 conditional V-Shell ownership. Publication remains paused pending that review.
+
+
+## Checkpoint 3: sticky presentation
+
+`StickyPresentation` filters Overview membership without changing Meta.Window
+stickiness or workspace membership. Pointer polling is not added. Window,
+workspace, stacking and Overview drag signals coalesce reconciliation before
+redraw. The destination preview is added before obsolete duplicates are removed;
+an active drag source survives workspace changes until drag completion or
+cancellation. Native drop membership checks retain their original semantics.
+Single-workspace secondary views remain native because they have no inactive
+faces to duplicate. Disable restores the original predicates and ordinary sticky
+previews, including when Overview is already open.
+
+Desktop animations use a separate presentation path. Native Shell keeps sticky
+windows in an overlay above the rotating faces. During Cube-owned animations,
+that overlay's window clones are suppressed and reversible source clones are
+placed on the actual active workspace face. Source actors, sticky state and
+workspace membership are unchanged. Native moving-window overlays and desktop
+background windows remain native. Stacking, minimized state, active workspace
+changes, stick/unstick and unmanaged windows are reconciled. Cube depth separation
+applies to the added clones; animation completion or teardown removes them and
+restores owned instance methods and native clone visibility. With optional desktop
+cube animation disabled, Shell's ordinary desktop animation is unchanged.
+
+Validation also exposed three animation lifecycle cases handled locally:
+
+- Older Shell stacking callbacks query current membership against a snapshot of
+  clone records. Scoped instance predicates exclude missing records during the
+  owned animation, avoiding a missing-record dereference after stick/unstick.
+- Shell's primary-monitor completion callback can destroy every monitor group
+  synchronously with reduced motion. Cube prepares the primary last so no later
+  update in that loop accesses disposed secondary groups.
+- V-Shell retains source actors in `_hiddenWindows` for scale restoration at
+  animation teardown. Unmanaged actors are removed from that temporary list while
+  the Cube-owned groups are tracked. V-Shell source is unchanged.
+
+Native presentation regressions pass on GNOME 46.0 Wayland and X11, 48.7 Wayland,
+50.1 headless Wayland, and 51.0 headless Wayland with two monitors. Each completed
+presentation run executes 78 assertions across standalone Cube and V-Shell 51.4,
+covering both presentation paths, live active/sticky/minimized state, desktop
+progress updates, native moving-window overlays, closure during animation,
+reduced-motion completion, real-pointer sticky dragging/Escape cancellation,
+actor cleanup and restoration on disable/re-enable with Overview open. Both
+workspace arrangements are exercised on 46.0. Animation-enabled runs explicitly
+force Shell animations on despite software rendering, then disable animations for
+the reduced-motion case. Virtual input devices are initialized outside Overview so
+multi-monitor hot-corner pressure barriers do not toggle Overview during setup.
+Progress observations inspect actual native animation actors; they are not screenshot evidence of visual smoothness.
+
+The final ordinary spatial suite passes again on GNOME 46.0 with V-Shell and
+D2D-A in both arrangements (48 assertions each) and on GNOME 51.0 with two monitors
+(44 assertions). These exercise virtual-pointer dragging and native drops, not
+only direct DND signal calls. A final lifecycle rerun passes 125 assertions on
+46.0 and 51.0, including exact restoration of all three preview/DND methods. The peer-only errors documented above remain applicable to repeated
+V-Shell rebuilds; there are no disposed-object or JavaScript errors in the final
+sticky presentation runs.
+
+GNOME 45, 47 and 49 were inspected, not executed. The inspection covers Overview
+membership/removal, WorkspaceGroup records and sticky overlays, animation
+completion and extension-state APIs. GNOME 45 does not export WorkspaceGroup;
+the implementation discovers the native overlay through its actor records
+instead of importing that class. Later Shell background-group and minimized-clone
+changes retain the used record relationships. No native X11 coverage beyond 46,
+hardware rendering, mixed scaling or physical gesture coverage is claimed.
+The historical repeated dock-rebuild allocation stress case recorded in
+`adaptive-testing.md` has not been requalified by this task; the ordinary
+four-side dock detection and real spatial drag regressions pass.
+
+Automated syntax/schema, packaging and promotion-controller checks pass, as do
+all ten spatial/lifecycle/policy unit regressions, clang-format 18 and REUSE lint.
+The ZIP includes every new runtime and preferences module. Resources, locales,
+metadata, upstream attribution and saved schema keys are unchanged.
+
+## Maintainer publication handoff
+
+No new user setting, schema migration, version bump or README narrative is
+included. Existing saved standalone workspace policies are preserved. README
+review is needed for conditional V-Shell ownership of the two workspace policies
+and active-face-only sticky presentation. Other settings overlaps were left
+independent because their scopes differ. Downstream callers reading the local
+saved hide-empty flag need a separate effective-policy integration update.
+The promotion PR remains draft with `do-not-merge`; the seven-day quiet period
+and CI requirements are unchanged. Technical validation is not approval of the
+human-owned product narrative or resolution of upstream peer errors.

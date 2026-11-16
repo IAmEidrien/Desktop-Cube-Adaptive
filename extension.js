@@ -33,6 +33,7 @@ import {Skybox} from './src/Skybox.js';
 import {SpatialOverview} from './src/SpatialOverview.js';
 import {PeerLifecycle} from './src/PeerLifecycle.js';
 import {WorkspacePolicy} from './src/WorkspacePolicy.js';
+import {StickyPresentation} from './src/StickyPresentation.js';
 
 //////////////////////////////////////////////////////////////////////////////////////////
 // This extensions tweaks the positioning of workspaces in overview mode and while      //
@@ -479,6 +480,7 @@ export default class DesktopCube extends Extension {
         }
       });
 
+      extensionThis._sticky?.syncDesktop(group, explode);
       // The depth-sorting of cube faces is quite simple, we sort them by increasing
       // rotation angle.
       extensionThis._depthSortCubeFaces(group._workspaceGroups);
@@ -496,6 +498,9 @@ export default class DesktopCube extends Extension {
     // are handled differently than the gesture based switches.
     // https://gitlab.gnome.org/GNOME/gnome-shell/-/blob/main/js/ui/workspaceAnimation.js#L377
     Main.wm._workspaceAnimation._prepareWorkspaceSwitch = function(...params) {
+      // Native preparation is idempotent. Do not attach duplicate cube hooks
+      // or take ownership of a transition which was prepared in native mode.
+      if (this._switchData) return extensionThis._origPrepSwitch.apply(this, params);
       // This private fork can leave desktop-mode workspace transitions entirely to
       // GNOME / V-Shell while retaining Desktop Cube in the Overview. Keep the wrapper
       // installed so compatibility rebasing remains load-order safe, but become a pure
@@ -512,7 +517,14 @@ export default class DesktopCube extends Extension {
       const workspaceIndices = extensionThis._getCubeWorkspaceIndices();
       extensionThis._origPrepSwitch.apply(this,
                                           workspaceIndices ? [workspaceIndices] : []);
+      // Shell completes all monitor groups from the primary group's callback.
+      // With reduced motion that callback may run synchronously. Update the
+      // primary last so no later iteration touches an already destroyed group.
+      this._switchData.monitors.sort((a, b) =>
+                                       (a.index === Main.layoutManager.primaryIndex) -
+                                       (b.index === Main.layoutManager.primaryIndex));
       this._desktopCubeAnimationActive = true;
+      extensionThis._sticky?.track(this._switchData.monitors);
 
       // Now tweak the monitor groups.
       this._switchData.monitors.forEach(m => {
@@ -568,6 +580,7 @@ export default class DesktopCube extends Extension {
         });
       }
 
+      if (cubeAnimationActive) extensionThis._sticky?.releaseDesktop();
       delete this._desktopCubeAnimationActive;
       const result = extensionThis._origFinalSwitch.apply(this, params);
 
@@ -1046,12 +1059,15 @@ export default class DesktopCube extends Extension {
 
     updateMonitorPerspective();
     this._spatial = new SpatialOverview(this);
+    this._sticky  = new StickyPresentation(this);
   }
 
   // This function could be called after the extension is uninstalled, disabled in GNOME
   // Tweaks, when you log out or when the screen locks.
   disable() {
     this._releaseOwnedAnimation();
+    this._sticky?.destroy();
+    this._sticky = null;
     this._peerLifecycle?.destroy();
     this._peerLifecycle = null;
     this._spatial?.destroy();
@@ -1310,6 +1326,7 @@ export default class DesktopCube extends Extension {
   }
 
   _releaseOwnedAnimation() {
+    this._sticky?.releaseDesktop();
     const controller = Main.wm._workspaceAnimation;
     const data       = controller._switchData;
     if (!controller._desktopCubeAnimationActive || !data) return;

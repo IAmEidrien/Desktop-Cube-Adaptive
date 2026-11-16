@@ -69,6 +69,7 @@ shutil.copy(source / ('probe.js' if args.checkpoint == 'spatial' else 'compatibi
 shutil.copy(source / 'client.js', root / 'client.js')
 shutil.copy(source / 'policyPrefs.js', root / 'policyPrefs.js')
 shutil.copy(source / 'policyProbe.js', probe / 'policyProbe.js')
+shutil.copy(source / 'stickyProbe.js', probe / 'stickyProbe.js')
 env = dict(os.environ, TEST_CHECKPOINT=args.checkpoint, REVIEW_ROOT=str(root), TEST_MONITORS=str(args.monitors),
            TEST_VSHELL='1' if args.vshell else '', TEST_DOCK='1' if args.dock else '',
            LIBGL_ALWAYS_SOFTWARE='1', GALLIUM_DRIVER='llvmpipe',

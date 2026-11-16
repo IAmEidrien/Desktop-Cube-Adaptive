@@ -3,6 +3,10 @@
 
 # Adaptive compatibility testing
 
+The October results below are historical. The later lifecycle, effective-policy
+and sticky-presentation checkpoints, expanded peer coverage and remaining
+limitations are recorded in [compatibility-checkpoints.md](compatibility-checkpoints.md).
+
 Candidate: 35-adaptive1, tested October 27, 2026. These are isolated software-rendered
 GNOME sessions with real GTK windows and virtual pointer input, not Eidrien's
 physical desktop. Compatibility does not imply full support; Eidrien personally
@@ -72,3 +76,22 @@ GNOME's private Shew typelib/library directories may need adding to
 Static/schema checks, policy/lifecycle regressions, promotion-controller tests,
 ZIP packaging, clang-format and REUSE license checks complement the native runs.
 GitHub CI performs the static/package checks; it does not run a GNOME compositor.
+
+
+The coordinated compatibility checkpoints can be reproduced separately:
+
+```bash
+python3 tests/native/run.py --version 46 --checkpoint 1 --output /tmp/cube-lifecycle \
+  --vshell /path/to/vertical-workspaces
+python3 tests/native/run.py --version 46 --checkpoint 2 --output /tmp/cube-policy \
+  --vshell /path/to/vertical-workspaces
+python3 tests/native/run.py --version 46 --checkpoint 3 --output /tmp/cube-sticky \
+  --vshell /path/to/vertical-workspaces
+```
+
+Checkpoint 1 exercises both activation orders and repeated peer rebuilds.
+Checkpoint 2 opens the real preferences process and verifies live ownership.
+Checkpoint 3 exercises Overview previews and desktop animation clones separately.
+`--checkpoint peer` runs the lifecycle control with Cube never enabled. Compatibility
+probes force animations on for software-rendered sessions; the sticky probe also
+exercises reduced-motion completion. Inspect `shell.log` as well as assertions.

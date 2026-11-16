@@ -7,6 +7,7 @@ import Meta from 'gi://Meta';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Config from 'resource:///org/gnome/shell/misc/config.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import {Workspace} from 'resource:///org/gnome/shell/ui/workspace.js';
 import {WorkspacesView} from 'resource:///org/gnome/shell/ui/workspacesView.js';
 
 const root   = GLib.getenv('REVIEW_ROOT');
@@ -29,7 +30,8 @@ export default class Probe extends Extension {
                            JSON.stringify({checks: this.checks, ...data}));
   }
   async run() {
-    this.checks = [];
+    this.checks             = [];
+    global.force_animations = true;
     const check = (ok, label) => {
       if (!ok) throw Error(label);
       this.checks.push(label);
@@ -50,6 +52,9 @@ export default class Probe extends Extension {
     Main.overview.hide();
     await wait(700);
     const baseline = {
+      predicate: Workspace.prototype._isMyWindow,
+      dragOver: Workspace.prototype.handleDragOver,
+      drop: Workspace.prototype.acceptDrop,
       spacing: WorkspacesView.prototype._getSpacing,
       update: WorkspacesView.prototype._updateWorkspacesState,
       visibility: WorkspacesView.prototype._updateVisibility,
@@ -59,7 +64,11 @@ export default class Probe extends Extension {
     };
     Gio.Subprocess.new(['gjs', '-m', `${root}/client.js`, 'org.eidrien.CubeLifecycle'],
                        0);
-    await wait(700);
+    for (let n = 0; n < 40 &&
+         !global.get_window_actors().some(a => a.meta_window.title ===
+                                            'org.eidrien.CubeLifecycle');
+         n++)
+      await wait(100);
     const views = () =>
       Main.overview._overview.controls._workspacesDisplay._workspacesViews
         .map(v => v._workspacesView ?? v)
@@ -81,6 +90,12 @@ export default class Probe extends Extension {
       Main.overview.hide();
       await wait(600);
     };
+    if (GLib.getenv('TEST_CHECKPOINT') === '3') {
+      const {runSticky} = await import('./stickyProbe.js');
+      await runSticky({root, cubeID, peerID, toggle, check, wait});
+      this.save({pass: true, shell: Config.PACKAGE_VERSION, checkpoint: 3});
+      return;
+    }
     if (GLib.getenv('TEST_CHECKPOINT') === '2') {
       const {runPolicy} = await import('./policyProbe.js');
       await runPolicy({root, cubeID, peerID, toggle, check, wait});
@@ -140,6 +155,10 @@ export default class Probe extends Extension {
             Main.wm._workspaceAnimation._prepareWorkspaceSwitch === baseline.prepare &&
             Main.wm._workspaceAnimation._finishWorkspaceSwitch === baseline.finish,
           'both disabled restore native navigation and animation');
+        check(Workspace.prototype._isMyWindow === baseline.predicate &&
+                Workspace.prototype.handleDragOver === baseline.dragOver &&
+                Workspace.prototype.acceptDrop === baseline.drop,
+              'both disabled restore native preview and DND methods');
         await visual();
       }
     }
